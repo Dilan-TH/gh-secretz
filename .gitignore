@@ -1,7 +1,8 @@
+gh-secretz
+dist/
 cache.json
 audit.jsonl
 .DS_Store
-gh-secretz
 
 # Unsanitized design notes: names private repos, alert numbers, and people.
 # Never commit. Public repo.

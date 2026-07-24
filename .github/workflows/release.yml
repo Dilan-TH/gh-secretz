@@ -21,3 +21,7 @@ jobs:
       - uses: cli/gh-extension-precompile@v2
         with:
           go_version: "1.26"
+          # The default build does not inject a version, so the binary would
+          # report "dev". The script receives the release tag as its first
+          # argument and passes it through to main.version.
+          build_script_override: script/build.sh
