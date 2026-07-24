@@ -89,7 +89,7 @@ func runTriage(env Env, args []string) int {
 	header := fmt.Sprintf("%d open alerts with no dismissal request, %d secret types enumerated",
 		len(rows), typesQueried)
 
-	dec, err := ui.Run(rows, ui.ModeTriage, header)
+	dec, err := ui.Run(rows, ui.ModeTriage, header, snippetFetcher(env))
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 1

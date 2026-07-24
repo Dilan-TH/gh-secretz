@@ -46,7 +46,7 @@ func runReview(env Env, args []string) int {
 	header := fmt.Sprintf("%d pending, filters: %v, %d secret types enumerated",
 		len(rows), spec.Names(), types)
 
-	dec, err := ui.Run(rows, ui.ModeReview, header)
+	dec, err := ui.Run(rows, ui.ModeReview, header, snippetFetcher(env))
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 1

@@ -43,6 +43,19 @@ func loadRows(env Env, org, timePeriod, repo string, secretTypes []string) ([]mo
 	return enrich.Join(reqs, byRepo), skips, typesQueried, nil
 }
 
+// snippetFetcher loads source context for the detail pane. Rows with no alert
+// have nothing to locate, so they get an explanatory note instead.
+func snippetFetcher(env Env) ui.SnippetFetcher {
+	return func(r model.Row) (model.Snippet, error) {
+		if r.Alert == nil {
+			return model.Snippet{
+				Note: "the alert could not be read, so its location is unknown",
+			}, nil
+		}
+		return alerts.FetchSnippet(env.T, *r.Alert)
+	}
+}
+
 func printSkips(env Env, skips []queue.Skip) {
 	for _, s := range skips {
 		fmt.Fprintf(env.Stderr, "skipped %s request %d: %s\n", s.FullName, s.RequestNumber, s.Reason)

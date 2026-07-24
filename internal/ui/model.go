@@ -42,6 +42,18 @@ var triageReasons = map[string]reason{
 // triageKeyOrder fixes the help line order, since map iteration is random.
 var triageKeyOrder = []string{"R", "T", "F", "W"}
 
+// SnippetFetcher loads the source context for a row. It is injected so the
+// UI is tested without network access, and may be nil, in which case the
+// detail pane simply omits the code section.
+type SnippetFetcher func(model.Row) (model.Snippet, error)
+
+// snippetMsg carries a completed fetch back into the update loop.
+type snippetMsg struct {
+	key     string
+	snippet model.Snippet
+	err     error
+}
+
 // Screen is the bubbletea model. Selection state is delegated entirely to
 // internal/selection so it can be tested without a terminal.
 type Screen struct {
@@ -60,6 +72,13 @@ type Screen struct {
 	pendingResolution string
 	pendingLabel      string
 	input             []rune
+
+	// fetch loads source context lazily, keyed by row, so opening the detail
+	// pane does not block the event loop on a network call.
+	fetch     SnippetFetcher
+	snippets  map[string]model.Snippet
+	snippErrs map[string]string
+	loading   map[string]bool
 }
 
 var (
@@ -75,7 +94,16 @@ const defaultWidth = 160
 
 func NewScreen(rows []model.Row, mode Mode, header string) *Screen {
 	return &Screen{sel: selection.New(rows), mode: mode, header: header,
-		height: 20, width: defaultWidth}
+		height: 20, width: defaultWidth,
+		snippets:  map[string]model.Snippet{},
+		snippErrs: map[string]string{},
+		loading:   map[string]bool{}}
+}
+
+// WithSnippets attaches a source context loader to the screen.
+func (s *Screen) WithSnippets(f SnippetFetcher) *Screen {
+	s.fetch = f
+	return s
 }
 
 // Decision reports what the operator chose.
@@ -91,6 +119,15 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.height = m.Height
 		s.width = m.Width
+		return s, nil
+
+	case snippetMsg:
+		delete(s.loading, m.key)
+		if m.err != nil {
+			s.snippErrs[m.key] = m.err.Error()
+			return s, nil
+		}
+		s.snippets[m.key] = m.snippet
 		return s, nil
 
 	case tea.KeyMsg:
@@ -118,6 +155,7 @@ func (s *Screen) updateList(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		if s.sel.Len() > 0 {
 			s.detail = true
+			return s, s.loadSnippet()
 		}
 		return s, nil
 	case tea.KeyUp:
@@ -331,6 +369,89 @@ func (s *Screen) promptView() string {
 	return b.String()
 }
 
+// loadSnippet returns a command fetching source context for the cursor row,
+// or nil when there is nothing to do because it is cached, already in flight,
+// or no fetcher was attached.
+func (s *Screen) loadSnippet() tea.Cmd {
+	if s.fetch == nil || s.sel.Len() == 0 {
+		return nil
+	}
+	row := s.sel.Rows()[s.sel.Cursor()]
+	key := row.Key()
+	if _, done := s.snippets[key]; done {
+		return nil
+	}
+	if _, failed := s.snippErrs[key]; failed {
+		return nil
+	}
+	if s.loading[key] {
+		return nil
+	}
+	s.loading[key] = true
+
+	return func() tea.Msg {
+		snip, err := s.fetch(row)
+		return snippetMsg{key: key, snippet: snip, err: err}
+	}
+}
+
+// snippetSection renders the source context, or an explanation of why there
+// is none.
+func (s *Screen) snippetSection(row model.Row) []string {
+	if s.fetch == nil {
+		return nil
+	}
+	key := row.Key()
+
+	if s.loading[key] {
+		return []string{"", "  source:  loading ..."}
+	}
+	if msg, failed := s.snippErrs[key]; failed {
+		return []string{"", "  source could not be loaded: " + msg}
+	}
+	snip, ok := s.snippets[key]
+	if !ok {
+		return nil
+	}
+
+	out := []string{""}
+	if snip.Path != "" {
+		loc := fmt.Sprintf("  %s:%d", snip.Path, snip.StartLine)
+		if snip.Locations > 1 {
+			loc += fmt.Sprintf("   (1 of %d locations)", snip.Locations)
+		}
+		out = append(out, headerStyle.Render(loc))
+	}
+	if snip.Note != "" {
+		out = append(out, "  "+snip.Note)
+	}
+
+	// Context lines are cut to the pane, since a wrapped snippet is harder to
+	// read than a truncated one. Hit lines wrap instead, because truncating
+	// the line holding the secret would hide the thing being inspected.
+	room := s.width - 12
+	if room < 40 {
+		room = 40
+	}
+	for _, l := range snip.Lines {
+		if !l.Hit {
+			out = append(out, fmt.Sprintf("    %5d  %s", l.Number, truncate(l.Text, room)))
+			continue
+		}
+		for i, chunk := range wrap(l.Text, room) {
+			prefix := fmt.Sprintf("  > %5d  ", l.Number)
+			if i > 0 {
+				prefix = "            "
+			}
+			out = append(out, warnStyle.Render(prefix+chunk))
+		}
+	}
+	if snip.HTMLURL != "" {
+		out = append(out, "", "  "+snip.HTMLURL)
+	}
+	return out
+}
+
 // detailView renders the untruncated detail pane for the cursor row.
 func (s *Screen) detailView() string {
 	var b strings.Builder
@@ -343,6 +464,10 @@ func (s *Screen) detailView() string {
 	b.WriteString("\n\n")
 
 	for _, line := range FormatDetail(rows[cur]) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	for _, line := range s.snippetSection(rows[cur]) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -367,6 +492,20 @@ func (s *Screen) footer(total int) string {
 	return nav + "\n  close as:  " + strings.Join(keys, "   ") + "   q abort"
 }
 
+// wrap splits s into chunks of at most n characters, so a long line holding a
+// secret is fully readable rather than cut off.
+func wrap(s string, n int) []string {
+	if n <= 0 {
+		return []string{s}
+	}
+	var out []string
+	for len(s) > n {
+		out = append(out, s[:n])
+		s = s[n:]
+	}
+	return append(out, s)
+}
+
 func plural(word string, n int) string {
 	if n == 1 {
 		return word
@@ -375,8 +514,9 @@ func plural(word string, n int) string {
 }
 
 // Run drives the screen to completion and returns the operator's decision.
-func Run(rows []model.Row, mode Mode, header string) (Decision, error) {
-	s := NewScreen(rows, mode, header)
+// fetch may be nil, in which case the detail pane omits source context.
+func Run(rows []model.Row, mode Mode, header string, fetch SnippetFetcher) (Decision, error) {
+	s := NewScreen(rows, mode, header).WithSnippets(fetch)
 	p := tea.NewProgram(s)
 	out, err := p.Run()
 	if err != nil {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -320,5 +321,138 @@ func TestWindowSizeSetsWidthUsedForRows(t *testing.T) {
 	if len(wideView) <= len(narrowView) {
 		t.Errorf("a wider window should render more comment: narrow=%d wide=%d",
 			len(narrowView), len(wideView))
+	}
+}
+
+// stubSnippet returns a fixed snippet, standing in for the network.
+func stubSnippet(snip model.Snippet, err error) SnippetFetcher {
+	return func(model.Row) (model.Snippet, error) { return snip, err }
+}
+
+func TestDetailShowsSourceSnippet(t *testing.T) {
+	snip := model.Snippet{
+		Path:      "postman/collection.json",
+		StartLine: 562,
+		Lines: []model.SnippetLine{
+			{Number: 561, Text: `  "key": "Authorization",`},
+			{Number: 562, Text: `  "value": "Bearer TOKEN-PLACEHOLDER-NOT-A-REAL-SECRET"`, Hit: true},
+			{Number: 563, Text: `  "type": "text"`},
+		},
+		HTMLURL: "https://example.test/blob#L562",
+	}
+	s := NewScreen(rows(1), ModeTriage, "header").WithSnippets(stubSnippet(snip, nil))
+
+	// Opening the pane returns a command; running it yields the snippet.
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	if cmd == nil {
+		t.Fatal("opening the detail pane should issue a fetch command")
+	}
+	next, _ = s.Update(cmd())
+	s = next.(*Screen)
+
+	view := s.View()
+	for _, want := range []string{
+		"postman/collection.json", "562", "Authorization", "TOKEN-PLACEHOLDER",
+		"https://example.test/blob#L562",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail view missing %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestDetailShowsLoadingThenResult(t *testing.T) {
+	s := NewScreen(rows(1), ModeTriage, "header").
+		WithSnippets(stubSnippet(model.Snippet{Path: "a.go"}, nil))
+
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	if !strings.Contains(s.View(), "loading") {
+		t.Errorf("pane should show a loading state while fetching, got:\n%s", s.View())
+	}
+
+	next, _ = s.Update(cmd())
+	s = next.(*Screen)
+	if strings.Contains(s.View(), "loading") {
+		t.Error("loading state should clear once the fetch returns")
+	}
+}
+
+func TestDetailReportsSnippetError(t *testing.T) {
+	s := NewScreen(rows(1), ModeTriage, "header").
+		WithSnippets(stubSnippet(model.Snippet{}, errors.New("rate limited")))
+
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	next, _ = s.Update(cmd())
+	s = next.(*Screen)
+
+	if !strings.Contains(s.View(), "rate limited") {
+		t.Errorf("pane should explain why source could not load, got:\n%s", s.View())
+	}
+}
+
+func TestSnippetIsFetchedOnlyOncePerRow(t *testing.T) {
+	// Reopening a pane must not refetch, since each fetch is two API calls.
+	var calls int
+	s := NewScreen(rows(2), ModeTriage, "header").
+		WithSnippets(func(model.Row) (model.Snippet, error) {
+			calls++
+			return model.Snippet{Path: "a.go"}, nil
+		})
+
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	next, _ = s.Update(cmd())
+	s = next.(*Screen)
+	s = press(s, "x") // close
+
+	_, cmd2 := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd2 != nil {
+		t.Error("reopening the same row should not issue another fetch")
+	}
+	if calls != 1 {
+		t.Errorf("fetcher called %d times, want 1", calls)
+	}
+}
+
+func TestNoFetcherMeansNoSourceSection(t *testing.T) {
+	s := NewScreen(rows(1), ModeReview, "header")
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	if cmd != nil {
+		t.Error("with no fetcher attached there is nothing to fetch")
+	}
+	if strings.Contains(s.View(), "loading") {
+		t.Error("no source section should appear without a fetcher")
+	}
+}
+
+func TestDetailWrapsTheHitLineSoLongSecretsStayReadable(t *testing.T) {
+	// Truncating the line holding the secret would hide the thing being
+	// inspected, so hit lines wrap across the pane instead.
+	long := strings.Repeat("A", 400)
+	snip := model.Snippet{
+		Path:      "config.json",
+		StartLine: 2,
+		Lines: []model.SnippetLine{
+			{Number: 1, Text: "before"},
+			{Number: 2, Text: `"token": "` + long + `"`, Hit: true},
+		},
+	}
+	s := NewScreen(rows(1), ModeTriage, "header").WithSnippets(stubSnippet(snip, nil))
+	next, _ := s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	s = next.(*Screen)
+	next, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s = next.(*Screen)
+	next, _ = s.Update(cmd())
+	s = next.(*Screen)
+
+	view := s.View()
+	// Every character of the value must be present somewhere in the pane.
+	joined := strings.ReplaceAll(strings.ReplaceAll(view, "\n", ""), " ", "")
+	if !strings.Contains(joined, long) {
+		t.Error("the full hit line should be reachable across wrapped rows")
 	}
 }

@@ -30,6 +30,14 @@ gh secretz close     --org O  <repo> <alert-number> --resolution R --comment C
 `space` toggles a row, `a` checks all, `n` clears, `enter` opens the full detail
 for the row under the cursor, and `q` aborts without sending anything.
 
+The detail pane shows the untruncated requester comment, both the alert and
+request numbers, and the **source context around the detected secret**: the file
+path, line number, and the surrounding lines, fetched on demand and cached per
+row. The line holding the secret is marked and wrapped rather than truncated, so
+a long token is fully readable. Seeing the value is often what settles the
+question: an expired dev token in a fixture and a live production credential
+look identical when all you have is the secret type.
+
 The destructive keys are capitals, and each mode exposes only its own, so a
 muscle memory keystroke cannot perform the wrong operation:
 

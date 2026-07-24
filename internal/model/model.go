@@ -64,6 +64,33 @@ func (a Alert) HasClosureRequest() bool {
 	return strings.TrimSpace(a.ClosureRequestComment) != ""
 }
 
+// SnippetLine is one line of source context around a detected secret.
+type SnippetLine struct {
+	Number int
+	Text   string
+	// Hit marks a line that contains part of the secret.
+	Hit bool
+}
+
+// Snippet is the source context for a secret scanning alert.
+//
+// The source is shown verbatim, secret included. The reviewer already has
+// these values through the web UI, the API, and the repository itself, and
+// seeing a value is sometimes what distinguishes a real credential from a
+// documented placeholder.
+type Snippet struct {
+	Path      string
+	StartLine int
+	EndLine   int
+	Lines     []SnippetLine
+	HTMLURL   string
+	// Locations is how many places the secret was detected, so a snippet
+	// showing one of several says so.
+	Locations int
+	// Note carries why a snippet is partial or absent.
+	Note string
+}
+
 // Row pairs a request with its alert. Request is nil for triage rows, which
 // are alerts with no request. Alert is nil when enrichment could not reach
 // the alert.
