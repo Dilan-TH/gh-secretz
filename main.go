@@ -78,6 +78,18 @@ func buildEnv(stdout, stderr io.Writer) (cli.Env, error) {
 		return cli.Env{}, err
 	}
 
+	interactive := term.IsTerminal(int(os.Stdout.Fd()))
+
+	// Width stays zero when output is piped, so a redirected table keeps
+	// full comments instead of being truncated to a terminal that is not
+	// there.
+	width := 0
+	if interactive {
+		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+			width = w
+		}
+	}
+
 	return cli.Env{
 		T:           t,
 		Cfg:         cfg,
@@ -85,7 +97,8 @@ func buildEnv(stdout, stderr io.Writer) (cli.Env, error) {
 		Actor:       currentActor(t),
 		Stdout:      stdout,
 		Stderr:      stderr,
-		Interactive: term.IsTerminal(int(os.Stdout.Fd())),
+		Interactive: interactive,
+		Width:       width,
 	}, nil
 }
 

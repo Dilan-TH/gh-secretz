@@ -57,7 +57,7 @@ func printRows(env Env, rows []model.Row, asJSON bool) {
 		return
 	}
 	for _, r := range rows {
-		fmt.Fprintln(env.Stdout, ui.Format(r))
+		fmt.Fprintln(env.Stdout, ui.Format(r, env.Width))
 	}
 }
 

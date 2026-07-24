@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -137,5 +138,59 @@ func TestViewRendersWithoutPanicOnEmptyRows(t *testing.T) {
 	s = press(s, "A")
 	if got := s.Decision().Action; got != "" {
 		t.Errorf("Action = %q, want empty", got)
+	}
+}
+
+func TestEnterOpensDetailAndAnyKeyCloses(t *testing.T) {
+	s := NewScreen(rows(3), ModeReview, "header")
+	s = press(s, "enter")
+	if !strings.Contains(s.View(), "detail for row 1 of 3") {
+		t.Errorf("enter should open the detail pane, got:\n%s", s.View())
+	}
+	s = press(s, "x")
+	if strings.Contains(s.View(), "detail for row") {
+		t.Error("any key should close the detail pane")
+	}
+}
+
+func TestDetailPaneDoesNotActOnDestructiveKeys(t *testing.T) {
+	// While reading detail, a capital A must close the pane rather than
+	// approve, otherwise reading about a row could approve it.
+	s := NewScreen(rows(2), ModeReview, "header")
+	s = press(s, " ")
+	s = press(s, "enter")
+	s = press(s, "A")
+	if got := s.Decision().Action; got != "" {
+		t.Errorf("Action = %q, want empty; A inside the detail pane must not approve", got)
+	}
+	if strings.Contains(s.View(), "detail for row") {
+		t.Error("A should have closed the detail pane")
+	}
+}
+
+func TestEnterOnEmptyListDoesNotOpenDetail(t *testing.T) {
+	s := NewScreen(nil, ModeReview, "header")
+	s = press(s, "enter")
+	if strings.Contains(s.View(), "detail for row") {
+		t.Error("there is no row to detail")
+	}
+}
+
+func TestWindowSizeSetsWidthUsedForRows(t *testing.T) {
+	long := strings.Repeat("reasoning ", 40)
+	r := []model.Row{{Request: &model.Request{Number: 1, AlertNumber: 7, Owner: "acme",
+		Repo: "alpha", Requester: "alice", Reason: "revoked", RequesterComment: long}}}
+
+	s := NewScreen(r, ModeReview, "header")
+	narrow, _ := s.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	narrowView := narrow.(*Screen).View()
+
+	s2 := NewScreen(r, ModeReview, "header")
+	wide, _ := s2.Update(tea.WindowSizeMsg{Width: 240, Height: 40})
+	wideView := wide.(*Screen).View()
+
+	if len(wideView) <= len(narrowView) {
+		t.Errorf("a wider window should render more comment: narrow=%d wide=%d",
+			len(narrowView), len(wideView))
 	}
 }

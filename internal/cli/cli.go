@@ -25,6 +25,10 @@ type Env struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	Interactive bool
+	// Width is the terminal width for table output. Zero means unlimited,
+	// which is what piped output wants: truncating a comment in a file the
+	// operator is going to grep is pure loss.
+	Width int
 }
 
 func (e Env) cachePath() string { return filepath.Join(e.Dir, "cache.json") }

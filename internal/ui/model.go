@@ -26,7 +26,10 @@ type Screen struct {
 	header   string
 	decision Decision
 	height   int
+	width    int
 	offset   int
+	// detail is true while the full detail pane for the cursor row is open.
+	detail bool
 }
 
 var (
@@ -36,8 +39,13 @@ var (
 	footStyle   = lipgloss.NewStyle().Faint(true)
 )
 
+// defaultWidth is used until the terminal reports its real size. It is wide
+// enough that the comment column is usable rather than a stub.
+const defaultWidth = 160
+
 func NewScreen(rows []model.Row, mode Mode, header string) *Screen {
-	return &Screen{sel: selection.New(rows), mode: mode, header: header, height: 20}
+	return &Screen{sel: selection.New(rows), mode: mode, header: header,
+		height: 20, width: defaultWidth}
 }
 
 // Decision reports what the operator chose.
@@ -49,12 +57,28 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.height = m.Height
+		s.width = m.Width
 		return s, nil
 
 	case tea.KeyMsg:
+		// While the detail pane is open, any key closes it. Nothing else is
+		// actionable from there, so trapping keys would only confuse.
+		if s.detail {
+			if m.Type == tea.KeyCtrlC {
+				return s, tea.Quit
+			}
+			s.detail = false
+			return s, nil
+		}
+
 		switch m.Type {
 		case tea.KeyCtrlC:
 			return s, tea.Quit
+		case tea.KeyEnter:
+			if s.sel.Len() > 0 {
+				s.detail = true
+			}
+			return s, nil
 		case tea.KeyUp:
 			s.sel.MoveUp()
 			s.follow()
@@ -150,6 +174,10 @@ func (s *Screen) View() string {
 		return b.String()
 	}
 
+	if s.detail {
+		return s.detailView()
+	}
+
 	end := s.offset + s.visibleCount()
 	if end > len(rows) {
 		end = len(rows)
@@ -160,7 +188,7 @@ func (s *Screen) View() string {
 		if s.sel.IsChecked(i) {
 			box = "[x]"
 		}
-		line := box + " " + Format(rows[i])
+		line := box + " " + Format(rows[i], s.width)
 		if len(rows[i].Warnings) > 0 {
 			line = warnStyle.Render(line)
 		}
@@ -176,12 +204,33 @@ func (s *Screen) View() string {
 	return b.String()
 }
 
+// detailView renders the untruncated detail pane for the cursor row.
+func (s *Screen) detailView() string {
+	var b strings.Builder
+	rows := s.sel.Rows()
+	cur := s.sel.Cursor()
+
+	b.WriteString(headerStyle.Render(s.header))
+	b.WriteString("\n\n")
+	b.WriteString(headerStyle.Render(fmt.Sprintf("  detail for row %d of %d", cur+1, len(rows))))
+	b.WriteString("\n\n")
+
+	for _, line := range FormatDetail(rows[cur]) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(footStyle.Render("any key returns to the list"))
+	return b.String()
+}
+
 func (s *Screen) footer(total int) string {
 	act := "A approve  D deny"
 	if s.mode == ModeTriage {
 		act = "C close"
 	}
-	return fmt.Sprintf("%d/%d selected   space toggle  a all  n none  %s  q abort",
+	return fmt.Sprintf("%d/%d selected   space toggle  a all  n none  enter detail  %s  q abort",
 		s.sel.CheckedCount(), total, act)
 }
 
