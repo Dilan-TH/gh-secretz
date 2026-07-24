@@ -9,7 +9,9 @@ package executor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +44,10 @@ const (
 	// OutcomeGone means the target no longer exists, usually because it was
 	// already resolved by someone else.
 	OutcomeGone Outcome = "gone"
+	// OutcomeAlreadyReviewed means someone, possibly this operator in an
+	// earlier run, already reviewed the request. The desired end state holds,
+	// so this is benign rather than a failure.
+	OutcomeAlreadyReviewed Outcome = "already-reviewed"
 	// OutcomeUnverified means the write returned success but the re-read did
 	// not show the expected state.
 	OutcomeUnverified Outcome = "unverified"
@@ -174,6 +180,12 @@ func (e Executor) one(row model.Row, act Action, message, resolution string) Res
 			res.Outcome = OutcomeForbidden
 		case transport.IsNotFound(err):
 			res.Outcome = OutcomeGone
+		case isAlreadyReviewed(err):
+			// The API rejects a second review with 422. Overlapping runs and
+			// a co-reviewer working the same queue both cause this, and in
+			// both cases the request is already in its intended state, so
+			// reporting it as an error would make a healthy run look failed.
+			res.Outcome = OutcomeAlreadyReviewed
 		default:
 			res.Outcome = OutcomeError
 		}
@@ -299,14 +311,32 @@ func (e Executor) appendAudit(ts time.Time, res Result, message string) error {
 	return err
 }
 
-// Summarise counts verified successes and everything else.
-func Summarise(rs []Result) (done, failed int) {
-	for _, r := range rs {
-		if r.Outcome == OutcomeDone {
-			done++
-			continue
-		}
-		failed++
+// isAlreadyReviewed reports whether the API refused because the request had
+// already been reviewed. The status is 422 and the reason is only in the
+// message, so this matches on the text.
+func isAlreadyReviewed(err error) bool {
+	var he *transport.HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusUnprocessableEntity {
+		return false
 	}
-	return done, failed
+	return strings.Contains(strings.ToLower(he.Message), "already been reviewed")
+}
+
+// Summarise buckets results into verified successes, benign outcomes that
+// need no action, and genuine failures.
+//
+// Already reviewed is benign: the request holds its intended state, so a run
+// that hits it should not report failure or exit non zero.
+func Summarise(rs []Result) (done, benign, failed int) {
+	for _, r := range rs {
+		switch r.Outcome {
+		case OutcomeDone:
+			done++
+		case OutcomeAlreadyReviewed:
+			benign++
+		default:
+			failed++
+		}
+	}
+	return done, benign, failed
 }

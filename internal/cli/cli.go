@@ -93,7 +93,7 @@ func splitTypes(s string) []string {
 // verified success makes the run non zero, so a partially applied batch never
 // looks like success to a script.
 func ExitCode(results []executor.Result) int {
-	_, failed := executor.Summarise(results)
+	_, _, failed := executor.Summarise(results)
 	if failed > 0 {
 		return 1
 	}

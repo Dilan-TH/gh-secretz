@@ -177,9 +177,9 @@ func TestPerItemFailureDoesNotAbortTheBatch(t *testing.T) {
 			res[1].Outcome, OutcomeDone)
 	}
 
-	done, failed := Summarise(res)
-	if done != 1 || failed != 1 {
-		t.Errorf("Summarise() = (%d, %d), want (1, 1)", done, failed)
+	done, benign, failed := Summarise(res)
+	if done != 1 || benign != 0 || failed != 1 {
+		t.Errorf("Summarise() = (%d, %d, %d), want (1, 0, 1)", done, benign, failed)
 	}
 }
 
@@ -294,5 +294,46 @@ func TestRunSkipsRowsWithNoUsableTarget(t *testing.T) {
 	}
 	if len(f.Patches) != 0 {
 		t.Errorf("sent %d patches for an empty row, want 0", len(f.Patches))
+	}
+}
+
+func TestAlreadyReviewedIsBenignNotAFailure(t *testing.T) {
+	// The API rejects a second review with 422. Overlapping runs and a
+	// co-reviewer working the same queue both cause this, and the request is
+	// already in its intended state, so a healthy run must not look failed.
+	// Observed live: one session logged 249 successes and 100 of these.
+	f := transport.NewFake()
+	e, _ := newExec(t, f)
+	f.PatchErr["repos/acme/r/dismissal-requests/secret-scanning/163"] =
+		&transport.HTTPError{StatusCode: 422, Message: "Dismissal request has already been reviewed"}
+
+	res, err := e.Run([]model.Row{requestRow(163)}, ActionApprove, "reviewed", "")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if res[0].Outcome != OutcomeAlreadyReviewed {
+		t.Errorf("Outcome = %q, want %q", res[0].Outcome, OutcomeAlreadyReviewed)
+	}
+
+	done, benign, failed := Summarise(res)
+	if done != 0 || benign != 1 || failed != 0 {
+		t.Errorf("Summarise() = (%d, %d, %d), want (0, 1, 0)", done, benign, failed)
+	}
+}
+
+func TestOther422IsStillAnError(t *testing.T) {
+	// Only the already reviewed case is benign. Any other 422 is a real
+	// problem and must not be swallowed.
+	f := transport.NewFake()
+	e, _ := newExec(t, f)
+	f.PatchErr["repos/acme/r/dismissal-requests/secret-scanning/10"] =
+		&transport.HTTPError{StatusCode: 422, Message: "Validation failed: message is too long"}
+
+	res, err := e.Run([]model.Row{requestRow(10)}, ActionApprove, "reviewed", "")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if res[0].Outcome != OutcomeError {
+		t.Errorf("Outcome = %q, want %q", res[0].Outcome, OutcomeError)
 	}
 }

@@ -88,6 +88,6 @@ func report(env Env, results []executor.Result) {
 		}
 		fmt.Fprintln(env.Stderr, line)
 	}
-	done, failed := executor.Summarise(results)
-	fmt.Fprintf(env.Stdout, "\n%d verified, %d not verified\n", done, failed)
+	done, benign, failed := executor.Summarise(results)
+	fmt.Fprintf(env.Stdout, "\n%d verified, %d already handled, %d failed\n", done, benign, failed)
 }

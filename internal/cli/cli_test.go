@@ -185,3 +185,15 @@ func TestCloseRejectsNonNumericAlert(t *testing.T) {
 		t.Errorf("sent %d writes, want 0", len(f.Patches))
 	}
 }
+
+func TestExitCodeZeroWhenOnlyAlreadyReviewed(t *testing.T) {
+	// A run that only encountered already reviewed requests did its job.
+	// Exiting non zero would make a healthy scheduled run look broken.
+	rs := []executor.Result{
+		{Outcome: executor.OutcomeDone},
+		{Outcome: executor.OutcomeAlreadyReviewed},
+	}
+	if got := ExitCode(rs); got != 0 {
+		t.Errorf("ExitCode() = %d, want 0; already reviewed is benign", got)
+	}
+}
