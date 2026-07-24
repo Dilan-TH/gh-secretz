@@ -2,7 +2,10 @@ module github.com/Dilan-TH/gh-secretz
 
 go 1.26.5
 
-require github.com/cli/go-gh/v2 v2.13.0
+require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/cli/go-gh/v2 v2.13.0
+)
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
