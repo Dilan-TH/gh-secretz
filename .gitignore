@@ -1,0 +1,7 @@
+cache.json
+audit.jsonl
+.DS_Store
+
+# Unsanitized design notes: names private repos, alert numbers, and people.
+# Never commit. Public repo.
+docs/internal/
