@@ -21,8 +21,6 @@ func runTriage(env Env, args []string) int {
 	g := GlobalFlags(fs)
 	repo := fs.String("repo", "", "repository to triage")
 	all := fs.Bool("all", false, "triage every repository in the discovery cache")
-	resolution := fs.String("resolution", "", "revoked, false_positive, used_in_tests, or wont_fix")
-	comment := fs.String("comment", "", "resolution comment recorded on every close")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -101,19 +99,11 @@ func runTriage(env Env, args []string) int {
 		return 0
 	}
 
-	// Closing has no requester reason to inherit, so both fields are required
-	// rather than defaulted.
-	if err := executor.ValidateResolution(*resolution); err != nil {
-		fmt.Fprintln(env.Stderr, err)
-		return 2
-	}
-	if err := executor.ValidateMessage(*comment); err != nil {
-		fmt.Fprintln(env.Stderr, err)
-		return 2
-	}
-
+	// The reason and comment come from the screen, chosen alongside the rows,
+	// so there is nothing left to validate after the fact and no way to lose
+	// a selection to a missing flag.
 	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath()}
-	results, err := ex.Run(dec.Rows, executor.ActionClose, *comment, *resolution)
+	results, err := ex.Run(dec.Rows, executor.ActionClose, dec.Comment, dec.Resolution)
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 2

@@ -18,17 +18,35 @@ GitHub API behaviours that are easy to get wrong.
 
 ```
 gh secretz list     [--org O] [--repo R] [--requester U] [--reason R] [--secret-type T] [--json]
-gh secretz review    --org O  <at least one filter> [--message M]
+gh secretz review    --org O  <at least one filter>
 gh secretz show      --org O  <repo> <alert-number>
 gh secretz discover  --org O  [--workers N]
-gh secretz triage    --org O  <--repo R | --all> --resolution R --comment C
+gh secretz triage    --org O  <--repo R | --all>
 gh secretz close     --org O  <repo> <alert-number> --resolution R --comment C
 ```
 
-In the multi select, `space` toggles a row, `a` checks all, `n` clears, and the
-destructive action is a distinct capital key: `A` approve, `D` deny, `C` close.
-Each mode exposes only its own, so a muscle memory keystroke cannot perform the
-wrong operation. `q` aborts without sending anything.
+### In the multi select
+
+`space` toggles a row, `a` checks all, `n` clears, `enter` opens the full detail
+for the row under the cursor, and `q` aborts without sending anything.
+
+The destructive keys are capitals, and each mode exposes only its own, so a
+muscle memory keystroke cannot perform the wrong operation:
+
+| Mode | Key | Action |
+|---|---|---|
+| `review` | `A` | approve the checked rows |
+| `review` | `D` | deny the checked rows |
+| `triage` | `R` | close as revoked, the secret has been revoked |
+| `triage` | `T` | close as used in tests, not in production code |
+| `triage` | `F` | close as false positive, the alert is not valid |
+| `triage` | `W` | close as wont fix, the alert is not relevant |
+
+Any of those opens a prompt for the comment applied to every checked row, with
+the affected rows still on screen. A comment is required, `enter` confirms, and
+`esc` cancels without sending anything. Choosing the reason and writing the
+comment happen alongside choosing the rows, so a selection can never be lost to
+a missing flag.
 
 Configuration is optional, at `~/.gh-secretz/config.toml`:
 

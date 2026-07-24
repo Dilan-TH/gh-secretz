@@ -13,7 +13,6 @@ func runReview(env Env, args []string) int {
 	fs.SetOutput(env.Stderr)
 	g := GlobalFlags(fs)
 	spec := FilterFlags(fs)
-	message := fs.String("message", "", "review message sent with every approval or denial")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -57,18 +56,13 @@ func runReview(env Env, args []string) int {
 		return 0
 	}
 
-	msg := *message
-	if msg == "" {
-		msg = fmt.Sprintf("Reviewed in bulk via gh-secretz by %s", env.Actor)
-	}
-
 	act := executor.ActionApprove
 	if dec.Action == "deny" {
 		act = executor.ActionDeny
 	}
 
 	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath()}
-	results, err := ex.Run(dec.Rows, act, msg, "")
+	results, err := ex.Run(dec.Rows, act, dec.Comment, "")
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 2
