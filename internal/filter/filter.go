@@ -60,7 +60,8 @@ func (s Spec) Validate(requireFilter bool) error {
 	}
 	return fmt.Errorf(
 		"%w: this command changes state, so it needs an explicit scope. "+
-			"Supply at least one of --repo, --requester, --reason, --secret-type, --only-warned",
+			"Supply at least one of --repo, --requester, --reason, --secret-type, "+
+			"--only-warned, or --all to cover the whole queue deliberately",
 		ErrNoFilter)
 }
 

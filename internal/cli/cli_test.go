@@ -197,3 +197,35 @@ func TestExitCodeZeroWhenOnlyAlreadyReviewed(t *testing.T) {
 		t.Errorf("ExitCode() = %d, want 0; already reviewed is benign", got)
 	}
 }
+
+func TestReviewAllIsAnExplicitScope(t *testing.T) {
+	// --all covers the whole queue, but typing it is a deliberate choice,
+	// which is the property the filter requirement protects. Running bare
+	// must still refuse.
+	f := transport.NewFake()
+	opts := queue.Options{Org: "acme", RequestStatus: "open", TimePeriod: "month"}
+	f.SetPage(queue.Path(opts), `[]`)
+
+	e, _, errOut := env(t, f, false)
+	// Not interactive, so it stops at the TTY check rather than the scope
+	// check. Reaching the TTY message proves the scope check passed.
+	code := Dispatch(e, []string{"review", "--all"})
+	if code == 0 {
+		t.Fatal("review still needs a terminal")
+	}
+	if strings.Contains(errOut.String(), "no filter given") {
+		t.Errorf("--all should satisfy the scope requirement, got: %s", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "terminal") {
+		t.Errorf("expected the TTY refusal, got: %s", errOut.String())
+	}
+}
+
+func TestReviewRefusalMentionsAll(t *testing.T) {
+	f := transport.NewFake()
+	e, _, errOut := env(t, f, true)
+	Dispatch(e, []string{"review"})
+	if !strings.Contains(errOut.String(), "--all") {
+		t.Errorf("the refusal should mention --all as an option, got: %s", errOut.String())
+	}
+}

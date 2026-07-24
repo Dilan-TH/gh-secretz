@@ -13,6 +13,7 @@ func runReview(env Env, args []string) int {
 	fs.SetOutput(env.Stderr)
 	g := GlobalFlags(fs)
 	spec := FilterFlags(fs)
+	all := fs.Bool("all", false, "review the entire organization queue, an explicit scope in itself")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -23,10 +24,14 @@ func runReview(env Env, args []string) int {
 		return 2
 	}
 
-	// review changes state, so it demands an explicit scope.
-	if err := spec.Validate(true); err != nil {
-		fmt.Fprintln(env.Stderr, err)
-		return 2
+	// review changes state, so it demands an explicit scope. --all is one:
+	// typing it is a deliberate choice to cover the whole queue, which is
+	// different from running bare and getting everything by default.
+	if !*all {
+		if err := spec.Validate(true); err != nil {
+			fmt.Fprintln(env.Stderr, err)
+			return 2
+		}
 	}
 
 	if !env.Interactive {

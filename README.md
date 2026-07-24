@@ -18,7 +18,7 @@ GitHub API behaviours that are easy to get wrong.
 
 ```
 gh secretz list     [--org O] [--repo R] [--requester U] [--reason R] [--secret-type T] [--json]
-gh secretz review    --org O  <at least one filter>
+gh secretz review    --org O  <at least one filter | --all>
 gh secretz show      --org O  <repo> <alert-number>
 gh secretz discover  --org O  [--workers N]
 gh secretz triage    --org O  <--repo R | --all>
@@ -62,6 +62,11 @@ Configuration is optional, at `~/.gh-secretz/config.toml`:
 org = "my-org"
 repo_prefixes = ["svc-", "lib-"]
 ```
+
+`review` and `triage` refuse to run without an explicit scope, so a bulk
+approval always states what it covers. `--all` is a valid scope: typing it is a
+deliberate choice to cover the whole queue, which is different from running bare
+and getting everything by default.
 
 `repo_prefixes` scopes the `discover` sweep. An empty list matches nothing
 rather than everything, because a wildcard sweep of a large org is thousands of
