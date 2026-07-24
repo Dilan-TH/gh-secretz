@@ -10,10 +10,36 @@ Two jobs:
    directly before a request is ever filed. This also resurfaces requests that
    silently expired.
 
-> **Status: design complete, not yet implemented.** The design is in
-> [`docs/superpowers/specs/`](docs/superpowers/specs/) and is worth reading even
-> if you never use the tool, because it documents several GitHub API behaviours
-> that are easy to get wrong.
+The design notes in [`docs/superpowers/specs/`](docs/superpowers/specs/) are
+worth reading even if you never use the tool, because they document several
+GitHub API behaviours that are easy to get wrong.
+
+## Usage
+
+```
+gh secretz list     [--org O] [--repo R] [--requester U] [--reason R] [--secret-type T] [--json]
+gh secretz review    --org O  <at least one filter> [--message M]
+gh secretz show      --org O  <repo> <alert-number>
+gh secretz discover  --org O  [--workers N]
+gh secretz triage    --org O  <--repo R | --all> --resolution R --comment C
+gh secretz close     --org O  <repo> <alert-number> --resolution R --comment C
+```
+
+In the multi select, `space` toggles a row, `a` checks all, `n` clears, and the
+destructive action is a distinct capital key: `A` approve, `D` deny, `C` close.
+Each mode exposes only its own, so a muscle memory keystroke cannot perform the
+wrong operation. `q` aborts without sending anything.
+
+Configuration is optional, at `~/.gh-secretz/config.toml`:
+
+```toml
+org = "my-org"
+repo_prefixes = ["svc-", "lib-"]
+```
+
+`repo_prefixes` scopes the `discover` sweep. An empty list matches nothing
+rather than everything, because a wildcard sweep of a large org is thousands of
+API calls.
 
 ## Why this exists
 
