@@ -70,6 +70,10 @@ func runTriage(env Env, args []string) int {
 			return 1
 		}
 		typesQueried = res.SecretTypesQueried
+		if err := alerts.FetchLocations(env.T, res.Alerts, 0); err != nil {
+			fmt.Fprintln(env.Stderr, err)
+			return 1
+		}
 
 		reqs, _, err := queue.List(env.T, queue.Options{
 			Org: org, Repo: name, RequestStatus: "all", TimePeriod: g.TimePeriod,
@@ -79,7 +83,7 @@ func runTriage(env Env, args []string) int {
 			reqs = nil
 		}
 
-		got, dis := enrich.Unrequested(res.Alerts, reqs)
+		got, dis := enrich.Unrequested(res.Alerts, reqs, env.Cfg.TestPathPatternsOrDefault())
 		for _, d := range dis {
 			fmt.Fprintf(env.Stderr, "withheld %s: %s\n", d.Key, d.Detail)
 		}

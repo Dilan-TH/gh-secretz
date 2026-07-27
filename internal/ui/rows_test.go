@@ -125,6 +125,43 @@ func TestWarnGlyphMarksStaleClaims(t *testing.T) {
 	}
 }
 
+func TestTestGlyphMarksTestPathRows(t *testing.T) {
+	testRow := model.Row{Request: &model.Request{Number: 1, AlertNumber: 7, Repo: "alpha"}, TestPath: true}
+	clean := model.Row{Request: &model.Request{Number: 2, AlertNumber: 8, Repo: "alpha"}}
+
+	if TestGlyph(testRow) == TestGlyph(clean) {
+		t.Error("a test-path row must be visually distinct from a clean one")
+	}
+	if strings.TrimSpace(TestGlyph(clean)) != "" {
+		t.Errorf("TestGlyph(clean) = %q, want blank", TestGlyph(clean))
+	}
+}
+
+func TestTestGlyphIsDistinctFromWarnGlyph(t *testing.T) {
+	// A test-path match must never look like a real warning: the two glyphs
+	// must never collide on the same character.
+	row := model.Row{
+		Request:  &model.Request{Number: 1, AlertNumber: 7, Repo: "alpha"},
+		Warnings: []string{enrich.WarnPubliclyLeaked},
+		TestPath: true,
+	}
+	if WarnGlyph(row) == TestGlyph(row) {
+		t.Errorf("WarnGlyph and TestGlyph must not render identically, both were %q", WarnGlyph(row))
+	}
+}
+
+func TestFormatShowsTestGlyphForTestPathRows(t *testing.T) {
+	row := model.Row{
+		Request:  &model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "alpha"},
+		Alert:    &model.Alert{Number: 7, Path: "test/fixtures/creds.yaml"},
+		TestPath: true,
+	}
+	got := Format(row, 160)
+	if !strings.Contains(got, "T") {
+		t.Errorf("Format() = %q, want the test-path glyph present", got)
+	}
+}
+
 func TestFormatIsSingleLine(t *testing.T) {
 	// The pager assumes one row per line. A newline would corrupt the view.
 	row := model.Row{Request: &model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "alpha",
@@ -172,6 +209,29 @@ func TestFormatDetailNotesWhenAlertUnreadable(t *testing.T) {
 	}
 	if !strings.Contains(joined, enrich.WarnNoAlert) {
 		t.Errorf("FormatDetail() should list warnings, got:\n%s", joined)
+	}
+}
+
+func TestFormatDetailShowsTestPathSeparatelyFromWarnings(t *testing.T) {
+	row := model.Row{
+		Request:  &model.Request{Number: 1, AlertNumber: 7, Repo: "alpha", FullName: "acme/alpha"},
+		Alert:    &model.Alert{Number: 7, State: "open", PubliclyLeaked: true, Path: "e2e/token.go"},
+		Warnings: []string{enrich.WarnPubliclyLeaked},
+		TestPath: true,
+	}
+	joined := strings.Join(FormatDetail(row), "\n")
+	if !strings.Contains(joined, "test path") {
+		t.Errorf("FormatDetail() missing a test path line, got:\n%s", joined)
+	}
+	// The test-path indicator must not be folded into the warnings line.
+	warningsLine := ""
+	for _, l := range FormatDetail(row) {
+		if strings.Contains(l, "warnings:") {
+			warningsLine = l
+		}
+	}
+	if strings.Contains(warningsLine, "test") {
+		t.Errorf("warnings line = %q, must not mention the test-path signal", warningsLine)
 	}
 }
 
