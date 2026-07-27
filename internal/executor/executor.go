@@ -78,6 +78,10 @@ type Executor struct {
 	AuditPath string
 	// Now is injectable so audit timestamps are deterministic in tests.
 	Now func() time.Time
+	// Progress, when set, is called once per row after it has been written
+	// and verified, with the count completed so far and the batch size.
+	// Optional, so callers with nothing to render can leave it nil.
+	Progress func(done, total int)
 }
 
 // ValidateMessage enforces the API's required, bounded message.
@@ -124,7 +128,7 @@ func (e Executor) Run(rows []model.Row, act Action, message, resolution string) 
 	}
 
 	results := make([]Result, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
 		res := e.one(row, act, message, resolution)
 		if err := e.appendAudit(now(), res, message); err != nil {
 			// An audit failure must be visible but must not silently discard
@@ -132,6 +136,9 @@ func (e Executor) Run(rows []model.Row, act Action, message, resolution string) 
 			res.Detail = strings.TrimSpace(res.Detail + " (audit write failed: " + err.Error() + ")")
 		}
 		results = append(results, res)
+		if e.Progress != nil {
+			e.Progress(i+1, len(rows))
+		}
 	}
 	return results, nil
 }
