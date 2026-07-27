@@ -44,6 +44,9 @@ func loadRows(env Env, org, timePeriod, repo string, secretTypes []string) ([]mo
 			return nil, nil, 0, err
 		}
 		typesQueried = res.SecretTypesQueried
+		if err := alerts.FetchLocations(env.T, res.Alerts, 0); err != nil {
+			return nil, nil, 0, err
+		}
 		byRepo[enrich.RepoKey(org, name)] = alerts.Index(res.Alerts)
 		i++
 		if bar != nil {
@@ -51,7 +54,7 @@ func loadRows(env Env, org, timePeriod, repo string, secretTypes []string) ([]mo
 		}
 	}
 
-	return enrich.Join(reqs, byRepo), skips, typesQueried, nil
+	return enrich.Join(reqs, byRepo, env.Cfg.TestPathPatternsOrDefault()), skips, typesQueried, nil
 }
 
 // snippetFetcher loads source context for the detail pane. Rows with no alert

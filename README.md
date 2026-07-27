@@ -61,6 +61,7 @@ Configuration is optional, at `~/.gh-secretz/config.toml`:
 ```toml
 org = "my-org"
 repo_prefixes = ["svc-", "lib-"]
+test_path_patterns = ["fixtures/", "e2e/"]
 ```
 
 `review` and `triage` refuse to run without an explicit scope, so a bulk
@@ -71,6 +72,14 @@ and getting everything by default.
 `repo_prefixes` scopes the `discover` sweep. An empty list matches nothing
 rather than everything, because a wildcard sweep of a large org is thousands of
 API calls.
+
+`test_path_patterns` flags a row whose secret lives in a path that looks like
+a test or fixture (a `T` marker in the list, `test path: yes` in the detail
+pane), so a `used_in_tests` claim is easy to sanity check at a glance. It is
+purely informational: it never filters rows and never suppresses a real
+warning such as a publicly leaked secret. Left unset, it falls back to a
+built-in list covering common conventions (`test/`, `fixtures/`, `e2e/`,
+`spec/`, `__mocks__/`, `testdata/`, `_test.`, and similar).
 
 `discover`, `list`, `review`, and `triage` show a live progress bar on stderr
 while they fetch alerts and requests across repos, and `review`/`triage` show

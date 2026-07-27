@@ -102,6 +102,31 @@ func TestMatchesPrefix(t *testing.T) {
 	}
 }
 
+func TestTestPathPatternsOrDefaultFallsBackWhenUnset(t *testing.T) {
+	c := Config{Org: "acme"}
+	got := c.TestPathPatternsOrDefault()
+	if len(got) == 0 {
+		t.Fatal("expected built-in default patterns, got none")
+	}
+	found := false
+	for _, p := range got {
+		if p == "fixtures/" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("default patterns = %v, want it to include \"fixtures/\"", got)
+	}
+}
+
+func TestTestPathPatternsOrDefaultHonorsOverride(t *testing.T) {
+	c := Config{Org: "acme", TestPathPatterns: []string{"only-this/"}}
+	got := c.TestPathPatternsOrDefault()
+	if len(got) != 1 || got[0] != "only-this/" {
+		t.Errorf("TestPathPatternsOrDefault() = %v, want the configured override only", got)
+	}
+}
+
 func TestDirIsUnderHome(t *testing.T) {
 	got, err := Dir()
 	if err != nil {

@@ -4,6 +4,7 @@ package enrich
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Dilan-TH/gh-secretz/internal/model"
 )
@@ -35,7 +36,7 @@ func RepoKey(owner, repo string) string {
 // Join attaches each request's alert, matched on the alert number. Matching
 // on the request number would attach an unrelated alert, because the two
 // numbers differ on the same record.
-func Join(reqs []model.Request, byRepo map[string]map[int]model.Alert) []model.Row {
+func Join(reqs []model.Request, byRepo map[string]map[int]model.Alert, testPathPatterns []string) []model.Row {
 	rows := make([]model.Row, 0, len(reqs))
 
 	for i := range reqs {
@@ -58,12 +59,32 @@ func Join(reqs []model.Request, byRepo map[string]map[int]model.Alert) []model.R
 			if row.Alert.PubliclyLeaked {
 				row.Warnings = append(row.Warnings, WarnPubliclyLeaked)
 			}
+			row.TestPath = IsTestPath(row.Alert.Path, testPathPatterns)
 		}
 
 		rows = append(rows, row)
 	}
 
 	return rows
+}
+
+// IsTestPath reports whether path looks like a test/fixture location,
+// matched case insensitively against each pattern as a substring. An empty
+// path or pattern list never matches.
+func IsTestPath(path string, patterns []string) bool {
+	if path == "" {
+		return false
+	}
+	lower := strings.ToLower(path)
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(p)) {
+			return true
+		}
+	}
+	return false
 }
 
 // staleClaim reports a requester asserting the secret is dead while the alert
@@ -92,7 +113,7 @@ func staleClaim(req model.Request, a model.Alert) bool {
 // The set difference still runs as a cross check. Where the two disagree the
 // alert is withheld and the conflict reported, rather than silently resolved
 // in either direction.
-func Unrequested(as []model.Alert, reqs []model.Request) ([]model.Row, []Disagreement) {
+func Unrequested(as []model.Alert, reqs []model.Request, testPathPatterns []string) ([]model.Row, []Disagreement) {
 	// Index only requests that are actually in flight. An expired or denied
 	// request leaves the alert open and is exactly the work triage exists to
 	// recover, so it is not a conflict.
@@ -131,6 +152,7 @@ func Unrequested(as []model.Alert, reqs []model.Request) ([]model.Row, []Disagre
 		if alert.PubliclyLeaked {
 			row.Warnings = append(row.Warnings, WarnPubliclyLeaked)
 		}
+		row.TestPath = IsTestPath(alert.Path, testPathPatterns)
 		rows = append(rows, row)
 	}
 

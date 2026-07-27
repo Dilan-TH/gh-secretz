@@ -17,3 +17,45 @@ jobs:
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
       - run: go test ./... -race
+
+  # Releases every merge to main under the next patch version, so a merged PR
+  # ships without a separate manual tag step. This only runs for the push
+  # event (a merge landing on main), not for the pull_request event that also
+  # triggers this workflow.
+  #
+  # This computes the tag and calls the same release action as release.yml
+  # directly, passing release_tag explicitly, rather than pushing a tag and
+  # relying on release.yml's tag-push trigger: a tag pushed using the
+  # default GITHUB_TOKEN does not start a new workflow run, so that chain
+  # would silently never fire. release.yml is kept as-is for a manual
+  # override (e.g. a deliberate minor/major bump): push a tag by hand and it
+  # takes over from there.
+  release:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compute next patch version
+        id: version
+        run: |
+          latest="$(git tag -l 'v*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            IFS='.' read -r major minor patch <<< "${latest#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+      - uses: cli/gh-extension-precompile@v2
+        with:
+          go_version: "1.26"
+          release_tag: ${{ steps.version.outputs.tag }}
+          # The default build does not inject a version, so the binary would
+          # report "dev". The script receives the release tag as its first
+          # argument and passes it through to main.version.
+          build_script_override: script/build.sh

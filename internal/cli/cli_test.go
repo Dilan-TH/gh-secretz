@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dilan-TH/gh-secretz/internal/alerts"
 	"github.com/Dilan-TH/gh-secretz/internal/config"
 	"github.com/Dilan-TH/gh-secretz/internal/executor"
 	"github.com/Dilan-TH/gh-secretz/internal/queue"
@@ -41,6 +42,31 @@ func TestListRunsWithoutFilters(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "#18") {
 		t.Errorf("output should list alert 18, got:\n%s", out.String())
+	}
+}
+
+func TestListMarksTestPathRows(t *testing.T) {
+	f := transport.NewFake()
+	opts := queue.Options{Org: "acme", RequestStatus: "open", TimePeriod: "month"}
+	f.SetPage(queue.Path(opts), `[{
+		"id":1,"number":5,"repository":{"name":"alpha","full_name":"acme/alpha"},
+		"organization":{"name":"acme"},"requester":{"actor_name":"alice"},
+		"data":[{"reason":"revoked","secret_type":"Password","alert_number":"18"}],
+		"resource_identifier":"18","status":"pending",
+		"created_at":"2026-07-24T00:00:00Z","expires_at":"2026-07-31T00:00:00Z"}]`)
+
+	aopts := alerts.Options{Owner: "acme", Repo: "alpha", State: "open"}
+	f.SetPage(alerts.DefaultPath(aopts), `[{"number":18,"state":"open"}]`)
+	f.SetPage(alerts.UnionPath(alerts.Options{Owner: "acme", Repo: "alpha", State: "open", SecretTypes: alerts.GenericSecretTypes}), `[]`)
+	f.SetPage(alerts.LocationsPath("acme", "alpha", 18),
+		`[{"type":"commit","details":{"path":"test/fixtures/creds.yaml"}}]`)
+
+	e, out, _ := env(t, f, false)
+	if code := Dispatch(e, []string{"list"}); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "T ") {
+		t.Errorf("output should show the test-path glyph, got:\n%s", out.String())
 	}
 }
 
