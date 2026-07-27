@@ -183,6 +183,43 @@ func TestPerItemFailureDoesNotAbortTheBatch(t *testing.T) {
 	}
 }
 
+func TestProgressFiresOncePerRowWithRunningCount(t *testing.T) {
+	f := transport.NewFake()
+	e, _ := newExec(t, f)
+	f.SetSingle("repos/acme/r/dismissal-requests/secret-scanning/11",
+		`{"number":2,"status":"approved","resource_identifier":"11",
+		  "data":[{"reason":"revoked","secret_type":"Password","alert_number":"11"}]}`)
+
+	type call struct{ done, total int }
+	var calls []call
+	e.Progress = func(done, total int) {
+		calls = append(calls, call{done, total})
+	}
+
+	_, err := e.Run([]model.Row{requestRow(10), requestRow(11)}, ActionApprove, "reviewed", "")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	want := []call{{1, 2}, {2, 2}}
+	if len(calls) != len(want) {
+		t.Fatalf("Progress called %d times, want %d: %+v", len(calls), len(want), calls)
+	}
+	for i, c := range calls {
+		if c != want[i] {
+			t.Errorf("call %d = %+v, want %+v", i, c, want[i])
+		}
+	}
+}
+
+func TestProgressIsOptional(t *testing.T) {
+	// A nil Progress must not panic; most callers have nothing to render.
+	f := transport.NewFake()
+	e, _ := newExec(t, f)
+	if _, err := e.Run([]model.Row{requestRow(10)}, ActionApprove, "reviewed", ""); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestGoneIsReportedSeparately(t *testing.T) {
 	f := transport.NewFake()
 	e, _ := newExec(t, f)

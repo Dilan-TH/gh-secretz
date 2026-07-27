@@ -6,6 +6,7 @@ import (
 
 	"github.com/Dilan-TH/gh-secretz/internal/executor"
 	"github.com/Dilan-TH/gh-secretz/internal/ui"
+	"github.com/schollz/progressbar/v3"
 )
 
 func runReview(env Env, args []string) int {
@@ -66,8 +67,19 @@ func runReview(env Env, args []string) int {
 		act = executor.ActionDeny
 	}
 
-	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath()}
+	var bar *progressbar.ProgressBar
+	if len(dec.Rows) > 0 {
+		bar = newProgressBar(env.Stderr, len(dec.Rows), "applying")
+	}
+	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath(), Progress: func(done, total int) {
+		if bar != nil {
+			_ = bar.Set(done)
+		}
+	}}
 	results, err := ex.Run(dec.Rows, act, dec.Comment, "")
+	if bar != nil {
+		_ = bar.Finish()
+	}
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 2

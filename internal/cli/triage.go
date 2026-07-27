@@ -13,6 +13,7 @@ import (
 	"github.com/Dilan-TH/gh-secretz/internal/model"
 	"github.com/Dilan-TH/gh-secretz/internal/queue"
 	"github.com/Dilan-TH/gh-secretz/internal/ui"
+	"github.com/schollz/progressbar/v3"
 )
 
 func runTriage(env Env, args []string) int {
@@ -61,7 +62,12 @@ func runTriage(env Env, args []string) int {
 
 	var rows []model.Row
 	typesQueried := 0
-	for _, name := range targets {
+	var bar *progressbar.ProgressBar
+	if len(targets) > 0 {
+		bar = newProgressBar(env.Stderr, len(targets), "processing repos")
+		defer func() { _ = bar.Finish() }()
+	}
+	for i, name := range targets {
 		res, err := alerts.List(env.T, alerts.Options{
 			Owner: org, Repo: name, State: "open", SecretTypes: splitTypes(g.SecretTypes),
 		})
@@ -88,6 +94,9 @@ func runTriage(env Env, args []string) int {
 			fmt.Fprintf(env.Stderr, "withheld %s: %s\n", d.Key, d.Detail)
 		}
 		rows = append(rows, got...)
+		if bar != nil {
+			_ = bar.Set(i + 1)
+		}
 	}
 
 	header := fmt.Sprintf("%d open alerts with no dismissal request, %d secret types enumerated",
@@ -106,8 +115,19 @@ func runTriage(env Env, args []string) int {
 	// The reason and comment come from the screen, chosen alongside the rows,
 	// so there is nothing left to validate after the fact and no way to lose
 	// a selection to a missing flag.
-	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath()}
+	var writeBar *progressbar.ProgressBar
+	if len(dec.Rows) > 0 {
+		writeBar = newProgressBar(env.Stderr, len(dec.Rows), "applying")
+	}
+	ex := executor.Executor{T: env.T, Actor: env.Actor, AuditPath: env.auditPath(), Progress: func(done, total int) {
+		if writeBar != nil {
+			_ = writeBar.Set(done)
+		}
+	}}
 	results, err := ex.Run(dec.Rows, executor.ActionClose, dec.Comment, dec.Resolution)
+	if writeBar != nil {
+		_ = writeBar.Finish()
+	}
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 2

@@ -81,6 +81,11 @@ warning such as a publicly leaked secret. Left unset, it falls back to a
 built-in list covering common conventions (`test/`, `fixtures/`, `e2e/`,
 `spec/`, `__mocks__/`, `testdata/`, `_test.`, and similar).
 
+`discover`, `list`, `review`, and `triage` show a live progress bar on stderr
+while they fetch alerts and requests across repos, and `review`/`triage` show
+one again while applying a bulk decision. The bar only renders to a real
+terminal, so piping any of these commands' output stays clean.
+
 ## Why this exists
 
 GitHub's delegated alert dismissal puts a review step in front of closing a

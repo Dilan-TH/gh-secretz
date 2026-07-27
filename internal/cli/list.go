@@ -10,6 +10,7 @@ import (
 	"github.com/Dilan-TH/gh-secretz/internal/model"
 	"github.com/Dilan-TH/gh-secretz/internal/queue"
 	"github.com/Dilan-TH/gh-secretz/internal/ui"
+	"github.com/schollz/progressbar/v3"
 )
 
 // loadRows fetches pending requests and enriches them with their alerts.
@@ -29,6 +30,12 @@ func loadRows(env Env, org, timePeriod, repo string, secretTypes []string) ([]mo
 
 	byRepo := map[string]map[int]model.Alert{}
 	typesQueried := 0
+	var bar *progressbar.ProgressBar
+	if len(repos) > 0 {
+		bar = newProgressBar(env.Stderr, len(repos), "fetching alerts")
+		defer func() { _ = bar.Finish() }()
+	}
+	i := 0
 	for name := range repos {
 		res, err := alerts.List(env.T, alerts.Options{
 			Owner: org, Repo: name, State: "open", SecretTypes: secretTypes,
@@ -41,6 +48,10 @@ func loadRows(env Env, org, timePeriod, repo string, secretTypes []string) ([]mo
 			return nil, nil, 0, err
 		}
 		byRepo[enrich.RepoKey(org, name)] = alerts.Index(res.Alerts)
+		i++
+		if bar != nil {
+			_ = bar.Set(i)
+		}
 	}
 
 	return enrich.Join(reqs, byRepo, env.Cfg.TestPathPatternsOrDefault()), skips, typesQueried, nil

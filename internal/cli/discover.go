@@ -7,6 +7,7 @@ import (
 
 	"github.com/Dilan-TH/gh-secretz/internal/config"
 	"github.com/Dilan-TH/gh-secretz/internal/discover"
+	"github.com/schollz/progressbar/v3"
 )
 
 func runDiscover(env Env, args []string) int {
@@ -37,10 +38,19 @@ func runDiscover(env Env, args []string) int {
 
 	s := discover.Sweep{Org: org, Workers: *workers, Lister: discover.GHRepoLister, Cfg: cfg}
 
+	// The bar is created lazily because total is only known once Sweep.Run
+	// has filtered candidates by prefix, which happens inside Run.
+	var bar *progressbar.ProgressBar
 	cache, err := s.Run(env.T, func(done, total, hits int) {
-		fmt.Fprintf(env.Stderr, "\rprobing %d/%d, %d with alerts", done, total, hits)
+		if bar == nil {
+			bar = newProgressBar(env.Stderr, total, "probing repos")
+		}
+		bar.Describe(fmt.Sprintf("probing repos, %d with alerts", hits))
+		_ = bar.Set(done)
 	})
-	fmt.Fprintln(env.Stderr)
+	if bar != nil {
+		_ = bar.Finish()
+	}
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 1
