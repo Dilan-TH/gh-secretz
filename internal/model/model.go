@@ -54,6 +54,10 @@ type Alert struct {
 	HTMLURL               string
 	MultiRepo             bool
 	PubliclyLeaked        bool
+	// Path is the file path of the alert's first detected location, fetched
+	// separately from the bulk alert listing. Empty when locations have not
+	// been fetched or could not be read.
+	Path string
 }
 
 // HasClosureRequest reports whether a dismissal request exists for this
@@ -98,6 +102,11 @@ type Row struct {
 	Request  *Request
 	Alert    *Alert
 	Warnings []string
+	// TestPath is true when the alert's location path matches a configured
+	// test/fixture pattern. It is deliberately independent of Warnings: it is
+	// informational only and must never suppress a real warning such as
+	// PubliclyLeaked.
+	TestPath bool
 }
 
 // Key identifies a row as owner/repo#alertNumber. It is built from the alert

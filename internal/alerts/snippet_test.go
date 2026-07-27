@@ -263,6 +263,105 @@ func TestFetchSnippetSkipsOversizedBlobs(t *testing.T) {
 	}
 }
 
+func TestFetchLocationReturnsPathWithoutFetchingBlob(t *testing.T) {
+	f := transport.NewFake()
+	withLocation(f, 6, 6, 15, 24)
+
+	got, err := FetchLocation(f, alert())
+	if err != nil {
+		t.Fatalf("FetchLocation() error = %v", err)
+	}
+	if got != "postman/collection.json" {
+		t.Errorf("path = %q", got)
+	}
+	for _, p := range f.Gets {
+		if p == BlobPath("acme", "r", "abc123") {
+			t.Errorf("FetchLocation should not fetch the blob, but it did: %v", f.Gets)
+		}
+	}
+}
+
+func TestFetchLocationNoLocationsIsEmptyNotError(t *testing.T) {
+	f := transport.NewFake()
+	f.SetPage(LocationsPath("acme", "r", 1), `[]`)
+
+	got, err := FetchLocation(f, alert())
+	if err != nil {
+		t.Fatalf("FetchLocation() error = %v", err)
+	}
+	if got != "" {
+		t.Errorf("path = %q, want empty", got)
+	}
+}
+
+func TestFetchLocationForbiddenIsEmptyNotError(t *testing.T) {
+	f := transport.NewFake()
+	f.GetErr[LocationsPath("acme", "r", 1)] =
+		&transport.HTTPError{StatusCode: 403, Message: "Forbidden"}
+
+	got, err := FetchLocation(f, alert())
+	if err != nil {
+		t.Fatalf("FetchLocation() should not fail on a permission problem, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("path = %q, want empty", got)
+	}
+}
+
+func TestFetchLocationsPopulatesPathOnEveryAlert(t *testing.T) {
+	f := transport.NewFake()
+	als := []model.Alert{
+		{Number: 1, Owner: "acme", Repo: "r"},
+		{Number: 2, Owner: "acme", Repo: "r"},
+		{Number: 3, Owner: "acme", Repo: "r"},
+	}
+	f.SetPage(LocationsPath("acme", "r", 1), `[{"type":"commit","details":{"path":"a/fixtures/one.json"}}]`)
+	f.SetPage(LocationsPath("acme", "r", 2), `[{"type":"commit","details":{"path":"src/prod.go"}}]`)
+	f.SetPage(LocationsPath("acme", "r", 3), `[]`)
+
+	if err := FetchLocations(f, als, 2); err != nil {
+		t.Fatalf("FetchLocations() error = %v", err)
+	}
+	want := map[int]string{1: "a/fixtures/one.json", 2: "src/prod.go", 3: ""}
+	for _, a := range als {
+		if a.Path != want[a.Number] {
+			t.Errorf("alert %d Path = %q, want %q", a.Number, a.Path, want[a.Number])
+		}
+	}
+}
+
+func TestFetchLocationsToleratesOneAlertBeingForbidden(t *testing.T) {
+	f := transport.NewFake()
+	als := []model.Alert{
+		{Number: 1, Owner: "acme", Repo: "r"},
+		{Number: 2, Owner: "acme", Repo: "r"},
+	}
+	f.SetPage(LocationsPath("acme", "r", 1), `[{"type":"commit","details":{"path":"a.go"}}]`)
+	f.GetErr[LocationsPath("acme", "r", 2)] =
+		&transport.HTTPError{StatusCode: 403, Message: "Forbidden"}
+
+	if err := FetchLocations(f, als, 2); err != nil {
+		t.Fatalf("FetchLocations() error = %v", err)
+	}
+	if als[0].Path != "a.go" {
+		t.Errorf("alert 1 Path = %q", als[0].Path)
+	}
+	if als[1].Path != "" {
+		t.Errorf("alert 2 Path = %q, want empty", als[1].Path)
+	}
+}
+
+func TestFetchLocationsReturnsFirstRealError(t *testing.T) {
+	f := transport.NewFake()
+	als := []model.Alert{{Number: 1, Owner: "acme", Repo: "r"}}
+	f.GetErr[LocationsPath("acme", "r", 1)] =
+		&transport.HTTPError{StatusCode: 500, Message: "Internal Server Error"}
+
+	if err := FetchLocations(f, als, 1); err == nil {
+		t.Fatal("FetchLocations() expected an error for a non-tolerated failure")
+	}
+}
+
 func texts(s model.Snippet) []string {
 	out := make([]string, 0, len(s.Lines))
 	for _, l := range s.Lines {

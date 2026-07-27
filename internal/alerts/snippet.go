@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/Dilan-TH/gh-secretz/internal/model"
 	"github.com/Dilan-TH/gh-secretz/internal/transport"
 )
+
+// defaultLocationWorkers bounds concurrency for FetchLocations, matching the
+// worker count discover.Sweep uses for the same reason: wall clock time
+// across many alerts, not rate limit avoidance.
+const defaultLocationWorkers = 8
 
 // ContextLines is how many lines either side of the hit to show.
 const ContextLines = 4
@@ -55,20 +61,15 @@ type blobWire struct {
 // rather than an error, because a detail pane that explains why it cannot show
 // code is more useful than one that shows nothing.
 func FetchSnippet(t transport.Transport, a model.Alert) (model.Snippet, error) {
-	raws, err := t.GetAllPages(LocationsPath(a.Owner, a.Repo, a.Number))
+	loc, count, ok, err := fetchFirstLocation(t, a)
 	if err != nil {
 		if transport.IsNotFound(err) || transport.IsForbidden(err) {
 			return model.Snippet{Note: "no permission to read this alert's locations"}, nil
 		}
 		return model.Snippet{}, err
 	}
-	if len(raws) == 0 {
+	if !ok {
 		return model.Snippet{Note: "the API reported no locations for this alert"}, nil
-	}
-
-	var loc locationWire
-	if err := decodeLocation(raws[0], &loc); err != nil {
-		return model.Snippet{}, err
 	}
 	d := loc.Details
 
@@ -77,7 +78,7 @@ func FetchSnippet(t transport.Transport, a model.Alert) (model.Snippet, error) {
 		StartLine: d.StartLine,
 		EndLine:   d.EndLine,
 		HTMLURL:   d.HTMLURL,
-		Locations: len(raws),
+		Locations: count,
 	}
 
 	if d.BlobSHA == "" {
@@ -112,6 +113,86 @@ func FetchSnippet(t transport.Transport, a model.Alert) (model.Snippet, error) {
 
 	snip.Lines = extract(string(decoded), d.StartLine, d.EndLine)
 	return snip, nil
+}
+
+// fetchFirstLocation fetches and decodes an alert's first reported location.
+// ok is false when the API reported no locations, which is not an error.
+func fetchFirstLocation(t transport.Transport, a model.Alert) (loc locationWire, count int, ok bool, err error) {
+	raws, err := t.GetAllPages(LocationsPath(a.Owner, a.Repo, a.Number))
+	if err != nil {
+		return locationWire{}, 0, false, err
+	}
+	if len(raws) == 0 {
+		return locationWire{}, 0, false, nil
+	}
+	if err := decodeLocation(raws[0], &loc); err != nil {
+		return locationWire{}, 0, false, err
+	}
+	return loc, len(raws), true, nil
+}
+
+// FetchLocation returns the file path of an alert's first reported location,
+// without fetching the blob content. A missing location or a permission
+// problem yields an empty path rather than an error, matching FetchSnippet's
+// tolerance for the same conditions.
+func FetchLocation(t transport.Transport, a model.Alert) (string, error) {
+	loc, _, ok, err := fetchFirstLocation(t, a)
+	if err != nil {
+		if transport.IsNotFound(err) || transport.IsForbidden(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if !ok {
+		return "", nil
+	}
+	return loc.Details.Path, nil
+}
+
+// FetchLocations populates Path on every alert concurrently, using a worker
+// pool so that fetching one extra "locations" call per alert scales in wall
+// clock time rather than serially. workers of zero or less uses
+// defaultLocationWorkers. The first error encountered (other than a not
+// found/forbidden location, which FetchLocation already tolerates) stops the
+// batch and is returned; alerts already updated keep their fetched Path.
+func FetchLocations(t transport.Transport, alerts []model.Alert, workers int) error {
+	if workers <= 0 {
+		workers = defaultLocationWorkers
+	}
+
+	var (
+		mu       sync.Mutex
+		firstErr error
+		jobs     = make(chan int)
+		wg       sync.WaitGroup
+	)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				path, err := FetchLocation(t, alerts[idx])
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					continue
+				}
+				alerts[idx].Path = path
+			}
+		}()
+	}
+
+	for i := range alerts {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	return firstErr
 }
 
 // extract pulls the context window around the hit.

@@ -37,8 +37,11 @@ type cols struct {
 
 // used is the width consumed before the comment begins, including the
 // checkbox the view prepends and the two space gap in front of the comment.
+//
+// The leading 3 covers the warning glyph, the test-path glyph, and the space
+// before the repo column.
 func (c cols) used() int {
-	return checkboxWidth + 2 + c.repo + 1 + colAlert + 1 +
+	return checkboxWidth + 3 + c.repo + 1 + colAlert + 1 +
 		c.requester + 1 + c.reason + 1 + c.secret + 1 + c.validity + 2
 }
 
@@ -95,6 +98,17 @@ func WarnGlyph(r model.Row) string {
 	return "!"
 }
 
+// TestGlyph returns a marker for rows whose secret lives in a test/fixture
+// path, blank otherwise. It is intentionally a separate, subdued indicator
+// from WarnGlyph: a test-path match is informational, not a warning, and
+// must never share the bold warning styling.
+func TestGlyph(r model.Row) string {
+	if !r.TestPath {
+		return " "
+	}
+	return "T"
+}
+
 // fields pulls the display values out of a row, tolerating either half being
 // absent: triage rows have no request, and enrichment may not have reached
 // the alert.
@@ -143,8 +157,8 @@ func Format(r model.Row, width int) string {
 	repo, ident, who, reason, secret, validity, note := fields(r)
 	c, room := layoutFor(width)
 
-	head := fmt.Sprintf("%s %-*s #%-*d %-*s %-*s %-*s",
-		WarnGlyph(r),
+	head := fmt.Sprintf("%s%s %-*s #%-*d %-*s %-*s %-*s",
+		WarnGlyph(r), TestGlyph(r),
 		c.repo, truncate(repo, c.repo),
 		colAlert-1, ident,
 		c.requester, truncate(who, c.requester),
@@ -238,6 +252,10 @@ func FormatDetail(r model.Row) []string {
 		}
 	} else if r.Request != nil {
 		out = append(out, "", "  the alert itself could not be read, so nothing here is cross checked")
+	}
+
+	if r.TestPath {
+		add("test path", "yes")
 	}
 
 	if len(r.Warnings) > 0 {

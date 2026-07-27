@@ -26,7 +26,7 @@ func TestJoinMatchesOnAlertNumberNotRequestNumber(t *testing.T) {
 	alert18 := model.Alert{Number: 18, Owner: "acme", Repo: "r", State: "open", SecretType: "password"}
 	alert5 := model.Alert{Number: 5, Owner: "acme", Repo: "r", State: "resolved", SecretType: "jwt_header"}
 
-	rows := Join([]model.Request{req}, idx(alert18, alert5))
+	rows := Join([]model.Request{req}, idx(alert18, alert5), nil)
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -43,7 +43,7 @@ func TestJoinMatchesOnAlertNumberNotRequestNumber(t *testing.T) {
 
 func TestJoinWarnsWhenAlertUnreachable(t *testing.T) {
 	req := model.Request{Number: 1, AlertNumber: 99, Owner: "acme", Repo: "r"}
-	rows := Join([]model.Request{req}, idx())
+	rows := Join([]model.Request{req}, idx(), nil)
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -61,7 +61,7 @@ func TestJoinFlagsStaleRevokedClaimOnLiveSecret(t *testing.T) {
 	req := model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "r", Reason: "revoked"}
 	live := model.Alert{Number: 7, Owner: "acme", Repo: "r", State: "open", Validity: "active"}
 
-	rows := Join([]model.Request{req}, idx(live))
+	rows := Join([]model.Request{req}, idx(live), nil)
 	if !hasWarning(rows[0], WarnStaleClaim) {
 		t.Errorf("warnings = %v, want %q", rows[0].Warnings, WarnStaleClaim)
 	}
@@ -73,7 +73,7 @@ func TestJoinDoesNotFlagRevokedClaimWhenValidityUnknown(t *testing.T) {
 	req := model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "r", Reason: "revoked"}
 	unknown := model.Alert{Number: 7, Owner: "acme", Repo: "r", State: "open", Validity: "unknown"}
 
-	rows := Join([]model.Request{req}, idx(unknown))
+	rows := Join([]model.Request{req}, idx(unknown), nil)
 	if hasWarning(rows[0], WarnStaleClaim) {
 		t.Errorf("validity unknown should not raise a stale claim warning, got %v", rows[0].Warnings)
 	}
@@ -85,7 +85,7 @@ func TestJoinDoesNotFlagUsedInTestsOnLiveSecret(t *testing.T) {
 	req := model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "r", Reason: "used_in_tests"}
 	live := model.Alert{Number: 7, Owner: "acme", Repo: "r", State: "open", Validity: "active"}
 
-	rows := Join([]model.Request{req}, idx(live))
+	rows := Join([]model.Request{req}, idx(live), nil)
 	if hasWarning(rows[0], WarnStaleClaim) {
 		t.Errorf("used_in_tests should not raise a stale claim, got %v", rows[0].Warnings)
 	}
@@ -95,7 +95,7 @@ func TestJoinFlagsPubliclyLeaked(t *testing.T) {
 	req := model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "r", Reason: "revoked"}
 	leaked := model.Alert{Number: 7, Owner: "acme", Repo: "r", State: "open", PubliclyLeaked: true}
 
-	rows := Join([]model.Request{req}, idx(leaked))
+	rows := Join([]model.Request{req}, idx(leaked), nil)
 	if !hasWarning(rows[0], WarnPubliclyLeaked) {
 		t.Errorf("warnings = %v, want %q", rows[0].Warnings, WarnPubliclyLeaked)
 	}
@@ -105,7 +105,7 @@ func TestUnrequestedUsesClosureMarker(t *testing.T) {
 	withReq := model.Alert{Number: 1, Owner: "acme", Repo: "r", State: "open", ClosureRequestComment: "please close"}
 	without := model.Alert{Number: 2, Owner: "acme", Repo: "r", State: "open"}
 
-	rows, dis := Unrequested([]model.Alert{withReq, without}, nil)
+	rows, dis := Unrequested([]model.Alert{withReq, without}, nil, nil)
 	if len(dis) != 0 {
 		t.Fatalf("unexpected disagreements: %+v", dis)
 	}
@@ -122,7 +122,7 @@ func TestUnrequestedUsesClosureMarker(t *testing.T) {
 
 func TestUnrequestedExcludesResolvedAlerts(t *testing.T) {
 	resolved := model.Alert{Number: 3, Owner: "acme", Repo: "r", State: "resolved"}
-	rows, _ := Unrequested([]model.Alert{resolved}, nil)
+	rows, _ := Unrequested([]model.Alert{resolved}, nil, nil)
 	if len(rows) != 0 {
 		t.Errorf("got %d rows, want 0; a resolved alert needs no triage", len(rows))
 	}
@@ -134,7 +134,7 @@ func TestUnrequestedReportsDisagreementWithRequestList(t *testing.T) {
 	alert := model.Alert{Number: 5, Owner: "acme", Repo: "r", State: "open"}
 	req := model.Request{Number: 9, AlertNumber: 5, Owner: "acme", Repo: "r", Status: "pending"}
 
-	rows, dis := Unrequested([]model.Alert{alert}, []model.Request{req})
+	rows, dis := Unrequested([]model.Alert{alert}, []model.Request{req}, nil)
 	if len(dis) != 1 {
 		t.Fatalf("got %d disagreements, want 1", len(dis))
 	}
@@ -154,12 +154,68 @@ func TestUnrequestedIgnoresExpiredRequestsInDisagreementCheck(t *testing.T) {
 	alert := model.Alert{Number: 5, Owner: "acme", Repo: "r", State: "open"}
 	expired := model.Request{Number: 9, AlertNumber: 5, Owner: "acme", Repo: "r", Status: "expired"}
 
-	rows, dis := Unrequested([]model.Alert{alert}, []model.Request{expired})
+	rows, dis := Unrequested([]model.Alert{alert}, []model.Request{expired}, nil)
 	if len(dis) != 0 {
 		t.Errorf("an expired request is not a contradiction, got %+v", dis)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1; expired requests should resurface for triage", len(rows))
+	}
+}
+
+func TestIsTestPathMatchesCaseInsensitively(t *testing.T) {
+	if !IsTestPath("Spec/Fixtures/CREDS.YAML", []string{"fixtures/"}) {
+		t.Error("expected a case insensitive match")
+	}
+}
+
+func TestIsTestPathNoMatch(t *testing.T) {
+	if IsTestPath("src/prod/config.go", []string{"fixtures/", "e2e/"}) {
+		t.Error("production path should not match")
+	}
+}
+
+func TestIsTestPathEmptyPathOrPatternsNeverMatches(t *testing.T) {
+	if IsTestPath("", []string{"fixtures/"}) {
+		t.Error("empty path must not match")
+	}
+	if IsTestPath("fixtures/creds.yaml", nil) {
+		t.Error("nil pattern list must not match")
+	}
+}
+
+func TestJoinSetsTestPathWithoutTouchingWarnings(t *testing.T) {
+	req := model.Request{Number: 1, AlertNumber: 7, Owner: "acme", Repo: "r", Reason: "revoked"}
+	leaked := model.Alert{
+		Number: 7, Owner: "acme", Repo: "r", State: "open",
+		PubliclyLeaked: true, Path: "test/fixtures/creds.yaml",
+	}
+
+	rows := Join([]model.Request{req}, idx(leaked), []string{"fixtures/"})
+	if !rows[0].TestPath {
+		t.Error("expected TestPath to be set for a fixtures/ path")
+	}
+	// A test-path match must never suppress a real warning.
+	if !hasWarning(rows[0], WarnPubliclyLeaked) {
+		t.Errorf("warnings = %v, TestPath must not suppress WarnPubliclyLeaked", rows[0].Warnings)
+	}
+}
+
+func TestUnrequestedSetsTestPathWithoutTouchingWarnings(t *testing.T) {
+	alert := model.Alert{
+		Number: 5, Owner: "acme", Repo: "r", State: "open",
+		PubliclyLeaked: true, Path: "e2e/token.go",
+	}
+
+	rows, _ := Unrequested([]model.Alert{alert}, nil, []string{"e2e/"})
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if !rows[0].TestPath {
+		t.Error("expected TestPath to be set for an e2e/ path")
+	}
+	if !hasWarning(rows[0], WarnPubliclyLeaked) {
+		t.Errorf("warnings = %v, TestPath must not suppress WarnPubliclyLeaked", rows[0].Warnings)
 	}
 }
 

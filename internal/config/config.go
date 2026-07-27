@@ -25,6 +25,21 @@ type Config struct {
 	Org          string   `toml:"org"`
 	RepoPrefixes []string `toml:"repo_prefixes"`
 	SecretTypes  []string `toml:"secret_types"`
+	// TestPathPatterns overrides DefaultTestPathPatterns when non-empty.
+	TestPathPatterns []string `toml:"test_path_patterns"`
+}
+
+// DefaultTestPathPatterns is used when TestPathPatterns is unset. Unlike
+// RepoPrefixes, an unmatched path only under-flags a row rather than
+// mis-scoping an expensive API sweep, so a built-in default is safe here.
+var DefaultTestPathPatterns = []string{
+	"test/", "tests/",
+	"fixture/", "fixtures/",
+	"e2e/",
+	"spec/", "specs/",
+	"__mocks__/", "mock/", "mocks/",
+	"testdata/",
+	"_test.", ".test.", ".spec.",
 }
 
 // Dir returns the tool's state directory, which holds config.toml,
@@ -63,6 +78,15 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%w: pass --org or set org in ~/.gh-secretz/config.toml", ErrNoOrg)
 	}
 	return nil
+}
+
+// TestPathPatternsOrDefault returns the configured test path patterns, or
+// DefaultTestPathPatterns when none are configured.
+func (c Config) TestPathPatternsOrDefault() []string {
+	if len(c.TestPathPatterns) > 0 {
+		return c.TestPathPatterns
+	}
+	return DefaultTestPathPatterns
 }
 
 // MatchesPrefix reports whether repo begins with any configured prefix.
